@@ -64,26 +64,27 @@ class SimpleDownloader:
             delay=2
         )
 
+        if resuming:
+            if response.status_code == 206:
+                print(f"Resuming download from byte {downloaded_bytes}")
+            elif response.status_code == 200:
+                print("Server ignored Range header. Restarting from beginning.")
+                downloaded_bytes = 0
+                file_mode = "wb"
+                delete_state(filename)
+                response.close()
+
+                response = retry_request(
+                    lambda: self._make_request(url),
+                    retries=3,
+                    delay=2
+                )
+            else:
+                response.close()
+                raise Exception(f"Unexpected status code during resume: {response.status_code}")
+
         with response:
             response.raise_for_status()
-
-            if resuming:
-                if response.status_code == 206:
-                    print(f"Resuming download from byte {downloaded_bytes}")
-                elif response.status_code == 200:
-                    print("Server ignored Range header. Restarting from beginning.")
-                    downloaded_bytes = 0
-                    file_mode = "wb"
-                    delete_state(filename)
-                    response.close()
-
-                    response = retry_request(
-                        lambda: self._make_request(url),
-                        retries=3,
-                        delay=2
-                    )
-                else:
-                    raise Exception(f"Unexpected status code during resume: {response.status_code}")
 
             with open(filepath, file_mode) as file:
                 for chunk in response.iter_content(chunk_size=8192):
