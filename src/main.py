@@ -1,9 +1,17 @@
 from core.file_info import get_file_info
 from core.downloader import SimpleDownloader, DownloadCancelled
+from utils.progress import ProgressTracker
+from storage.history import DownloadHistory
 
 
 def main():
-    url = input("Enter file URL: ").strip()
+    history_manager = DownloadHistory()
+
+    show_history = input("Do you want to see download history? (y/n): ").strip().lower()
+    if show_history == "y":
+        history_manager.show_history()
+
+    url = input("\nEnter file URL: ").strip()
 
     if not url:
         print("URL cannot be empty.")
@@ -22,14 +30,40 @@ def main():
             print("Download cancelled before start.")
             return
 
+        tracker = ProgressTracker(info["size"] if info["size"] else 0)
+
         downloader = SimpleDownloader()
-        saved_path = downloader.download_file(info["final_url"], info["filename"])
+        saved_path = downloader.download_file(
+            info["final_url"],
+            info["filename"],
+            tracker=tracker
+        )
+
+        history_manager.add_entry(
+            url=info["final_url"],
+            filename=info["filename"],
+            total_size=info["size"] if info["size"] else 0,
+            status="completed"
+        )
 
         print(f"\nDownload complete: {saved_path}")
 
     except DownloadCancelled as e:
+        history_manager.add_entry(
+            url=url,
+            filename="unknown",
+            total_size=0,
+            status="cancelled"
+        )
         print(str(e))
+
     except Exception as e:
+        history_manager.add_entry(
+            url=url,
+            filename="unknown",
+            total_size=0,
+            status="failed"
+        )
         print(f"Error: {e}")
 
 

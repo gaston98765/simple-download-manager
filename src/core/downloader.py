@@ -31,7 +31,13 @@ class SimpleDownloader:
     def _make_request(self, url, headers=None):
         return requests.get(url, stream=True, timeout=15, headers=headers or {})
 
-    def download_file(self, url: str, filename: str, output_folder: str = "downloads") -> str:
+    def download_file(
+        self,
+        url: str,
+        filename: str,
+        output_folder: str = "downloads",
+        tracker=None,
+    ) -> str:
         os.makedirs(output_folder, exist_ok=True)
         filepath = os.path.join(output_folder, filename)
 
@@ -58,53 +64,59 @@ class SimpleDownloader:
             delay=2
         )
 
+        if resuming:
+            if response.status_code == 206:
+                print(f"Resuming download from byte {downloaded_bytes}")
+            elif response.status_code == 200:
+                print("Server ignored Range header. Restarting from beginning.")
+                downloaded_bytes = 0
+                file_mode = "wb"
+                delete_state(filename)
+                response.close()
+
+                response = retry_request(
+                    lambda: self._make_request(url),
+                    retries=3,
+                    delay=2
+                )
+            else:
+                response.close()
+                raise Exception(f"Unexpected status code during resume: {response.status_code}")
+
         with response:
             response.raise_for_status()
 
-            if resuming:
-                if response.status_code == 206:
-                    print(f"Resuming download from byte {downloaded_bytes}")
-                elif response.status_code == 200:
-                    print("Server ignored Range header. Restarting from beginning.")
-                    downloaded_bytes = 0
-                    file_mode = "wb"
-                    delete_state(filename)
-                    response.close()
+            with open(filepath, file_mode) as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if self.cancelled:
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                        delete_state(filename)
+                        raise DownloadCancelled("Download was cancelled.")
 
-                    response = retry_request(
-                        lambda: self._make_request(url),
-                        retries=3,
-                        delay=2
-                    )
-                else:
-                    raise Exception(f"Unexpected status code during resume: {response.status_code}")
+                    if self.paused:
+                        save_state(filename, {
+                            "url": url,
+                            "downloaded_bytes": downloaded_bytes
+                        })
+                        raise DownloadPaused("Download was paused.")
 
-            with response:
-                response.raise_for_status()
+                    if chunk:
+                        file.write(chunk)
+                        downloaded_bytes += len(chunk)
 
-                with open(filepath, file_mode) as file:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if self.cancelled:
-                            if os.path.exists(filepath):
-                                os.remove(filepath)
-                            delete_state(filename)
-                            raise DownloadCancelled("Download was cancelled.")
+                        save_state(filename, {
+                            "url": url,
+                            "downloaded_bytes": downloaded_bytes
+                        })
 
-                        if self.paused:
-                            save_state(filename, {
-                                "url": url,
-                                "downloaded_bytes": downloaded_bytes
-                            })
-                            raise DownloadPaused("Download was paused.")
-
-                        if chunk:
-                            file.write(chunk)
-                            downloaded_bytes += len(chunk)
-
-                            save_state(filename, {
-                                "url": url,
-                                "downloaded_bytes": downloaded_bytes
-                            })
+                        if tracker is not None:
+                            tracker.update(len(chunk))
+                            print("\r" + tracker.get_status_line(), end="")
 
         delete_state(filename)
+
+        if tracker is not None:
+            print()
+
         return filepath
