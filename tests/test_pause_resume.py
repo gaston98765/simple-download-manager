@@ -3,10 +3,12 @@ import os
 import threading
 import time
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Add src folder to Python path so we can import core/
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from src.core.downloader import SimpleDownloader, DownloadPaused, DownloadCancelled
+from core.downloader import SimpleDownloader, DownloadPaused, DownloadCancelled
 
+# Test file (safe HTTP source)
 URL = "http://ipv4.download.thinkbroadband.com/20MB.zip"
 FILENAME = "test_file.zip"
 
@@ -29,13 +31,15 @@ def start_download():
         print("Error:", e)
 
 
+# Run download in separate thread so we can pause it
 thread = threading.Thread(target=start_download)
 thread.start()
 
-# Wait a little, then pause the download
+# Wait a few seconds, then pause
 time.sleep(3)
-#downloader.pause()
+downloader.pause()
 
+# Wait for thread to finish
 thread.join()
 
 print("\nRun the same file again to test resume.")
