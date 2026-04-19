@@ -31,7 +31,13 @@ class SimpleDownloader:
     def _make_request(self, url, headers=None):
         return requests.get(url, stream=True, timeout=15, headers=headers or {})
 
-    def download_file(self, url: str, filename: str, output_folder: str = "downloads") -> str:
+    def download_file(
+        self,
+        url: str,
+        filename: str,
+        output_folder: str = "downloads",
+        tracker=None,
+    ) -> str:
         os.makedirs(output_folder, exist_ok=True)
         filepath = os.path.join(output_folder, filename)
 
@@ -79,32 +85,37 @@ class SimpleDownloader:
                 else:
                     raise Exception(f"Unexpected status code during resume: {response.status_code}")
 
-            with response:
-                response.raise_for_status()
+            with open(filepath, file_mode) as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if self.cancelled:
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                        delete_state(filename)
+                        raise DownloadCancelled("Download was cancelled.")
 
-                with open(filepath, file_mode) as file:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if self.cancelled:
-                            if os.path.exists(filepath):
-                                os.remove(filepath)
-                            delete_state(filename)
-                            raise DownloadCancelled("Download was cancelled.")
+                    if self.paused:
+                        save_state(filename, {
+                            "url": url,
+                            "downloaded_bytes": downloaded_bytes
+                        })
+                        raise DownloadPaused("Download was paused.")
 
-                        if self.paused:
-                            save_state(filename, {
-                                "url": url,
-                                "downloaded_bytes": downloaded_bytes
-                            })
-                            raise DownloadPaused("Download was paused.")
+                    if chunk:
+                        file.write(chunk)
+                        downloaded_bytes += len(chunk)
 
-                        if chunk:
-                            file.write(chunk)
-                            downloaded_bytes += len(chunk)
+                        save_state(filename, {
+                            "url": url,
+                            "downloaded_bytes": downloaded_bytes
+                        })
 
-                            save_state(filename, {
-                                "url": url,
-                                "downloaded_bytes": downloaded_bytes
-                            })
+                        if tracker is not None:
+                            tracker.update(len(chunk))
+                            print("\r" + tracker.get_status_line(), end="")
 
         delete_state(filename)
+
+        if tracker is not None:
+            print()
+
         return filepath
