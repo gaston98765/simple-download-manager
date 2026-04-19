@@ -23,9 +23,9 @@ def format_time(seconds: float | None) -> str:
 
 
 class ProgressTracker:
-    def __init__(self, total_size: int):
+    def __init__(self, total_size: int, initial_downloaded: int = 0):
         self.total_size = total_size
-        self.downloaded = 0
+        self.downloaded = initial_downloaded
         self.start_time = time.time()
         self.lock = threading.Lock()
 
